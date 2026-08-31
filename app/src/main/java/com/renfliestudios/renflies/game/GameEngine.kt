@@ -164,11 +164,14 @@ class GameEngine(
             }
         }
 
-        // Bird vs obstacles.
-        for (o in obstacles) {
+        // Bird vs obstacles. Iterate with an explicit iterator because a
+        // shield hit removes the obstacle from the list mid-loop.
+        val hitIt = obstacles.iterator()
+        while (hitIt.hasNext()) {
+            val o = hitIt.next()
             if (isSpeedBoostActive || o.pulled) continue
             if (playerHitsObstacle(o)) {
-                onPlayerHitByObstacle(o)
+                if (onPlayerHitByObstacle()) hitIt.remove()
                 if (phase != GamePhase.PLAYING) return
             }
         }
@@ -424,20 +427,26 @@ class GameEngine(
         )
     }
 
-    private fun onPlayerHitByObstacle(o: Obstacle) {
+    /**
+     * Handles a bird-vs-obstacle hit. Returns true when the obstacle was
+     * consumed by a shield (the caller removes it from the list); false when
+     * it should remain (grace period or the run just ended).
+     */
+    private fun onPlayerHitByObstacle(): Boolean {
         if (player.hasShield) {
             // One-hit shield: absorb exactly this collision.
             player.hasShield = false
             player.invulnTimer = config.invulnerabilityDuration
             activePowerup = null
-            obstacles.remove(o)
             audio.shieldBreak()
-        } else if (player.invulnTimer > 0f) {
-            // Brief grace period after a shield break.
-            return
-        } else {
-            endRun()
+            return true
         }
+        if (player.invulnTimer > 0f) {
+            // Brief grace period after a shield break.
+            return false
+        }
+        endRun()
+        return false
     }
 
     private fun onPlayerHitByBullet() {

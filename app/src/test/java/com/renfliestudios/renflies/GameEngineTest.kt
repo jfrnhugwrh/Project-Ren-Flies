@@ -66,7 +66,10 @@ class GameEngineTest {
         var elapsed = 0f
         while (engine.score < targetScore && elapsed < maxSeconds) {
             val nearest = engine.obstacles
-                .filter { !it.scored && it.x + it.width > engine.player.x }
+                // Match the engine's score/collision geometry: a pipe is "the
+                // current one" until its right edge clears the bird's LEFT edge
+                // (player.x - radius), not until it clears the bird's centre.
+                .filter { !it.scored && it.x + it.width > engine.player.x - engine.player.radius }
                 .minByOrNull { it.x }
             if (nearest != null && nearest.x < 500f) {
                 engine.player.y = nearest.gapCenter
