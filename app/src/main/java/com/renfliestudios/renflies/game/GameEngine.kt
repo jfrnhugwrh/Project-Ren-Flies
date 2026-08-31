@@ -101,6 +101,17 @@ class GameEngine(
      * boss fight it also fires a shot at the boss.
      */
 
+      fun flap() {
+        when (phase) {
+            GamePhase.PLAYING -> player.flap()
+            GamePhase.BOSS -> {
+                player.flap()
+                firePlayerBullet()
+            }
+            else -> Unit
+        }
+    }
+
     // ---- Main update ------------------------------------------------------
 
     /** Advances the simulation. [dt] is the frame delta time in seconds. */

@@ -180,6 +180,9 @@ class Boss(private val config: GameConfig, val milestone: Int) {
 
     val isOffScreen: Boolean get() = x - radius > config.worldWidth + 100f
 
+    /** True when the boss's fire cooldown has elapsed and it should shoot this frame. */
+    val wantsToFire: Boolean get() = visualState == BossVisualState.FIGHTING && fireTimer <= 0f
+
     /** Data holder describing one bullet the boss wants to spawn. */
     class BulletIntent(val x: Float, val y: Float, val vx: Float, val vy: Float)
 }
