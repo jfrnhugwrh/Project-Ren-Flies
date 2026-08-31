@@ -467,7 +467,6 @@ class GameEngine(
         lastRunResult = result
         onRunEnded?.invoke(result)
     }
-}
 
     /** Grants a powerup directly (also used by the pickup collision path). */
     fun collectPowerUp(type: PowerUpType) {
@@ -515,3 +514,4 @@ class GameEngine(
         playerBullets.add(bullet)
         audio.playerShoot()
     }
+}
