@@ -28,7 +28,7 @@ class BattlePassTest {
         assertEquals(2, BattlePass.levelForXp(100))
         assertEquals(2, BattlePass.levelForXp(249))
         assertEquals(3, BattlePass.levelForXp(250))
-        assertEquals(3, BattlePass.xpForLevel(3))
+        assertEquals(250, BattlePass.xpForLevel(3))
     }
 
     @Test

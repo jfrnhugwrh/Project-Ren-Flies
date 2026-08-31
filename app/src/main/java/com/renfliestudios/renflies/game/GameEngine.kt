@@ -101,7 +101,7 @@ class GameEngine(
      * boss fight it also fires a shot at the boss.
      */
 
-      fun flap() {
+    fun flap() {
         when (phase) {
             GamePhase.PLAYING -> player.flap()
             GamePhase.BOSS -> {
