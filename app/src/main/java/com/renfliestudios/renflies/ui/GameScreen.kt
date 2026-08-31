@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -452,7 +453,7 @@ private fun Hud(engine: GameEngine, tick: Long, onExitToMenu: () -> Unit) {
 }
 
 @Composable
-private fun BossMessages(engine: GameEngine, tick: Long) {
+private fun BoxScope.BossMessages(engine: GameEngine, tick: Long) {
     // Boss intro warning.
     if (engine.phase == GamePhase.BOSS_INTRO) {
         val alpha = 0.6f + 0.4f * kotlin.math.sin(tick.toFloat() * 0.3f)
