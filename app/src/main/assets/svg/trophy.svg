@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original placeholder SVG: leaderboard trophy. Mirrored by res/drawable/ic_trophy.xml -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M5 4 L11 4 L11 7 L15 7 L15 4 L21 4 L21 10 C21 13 19 15 16 15.8 L16 18 L19 18 L19 21 L7 21 L7 18 L10 18 L10 15.8 C7 15 5 13 5 10 Z" fill="#FFD54F"/>
+</svg>

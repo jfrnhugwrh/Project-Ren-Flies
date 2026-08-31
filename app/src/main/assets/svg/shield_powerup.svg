@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original placeholder SVG: shield powerup. Mirrored by res/drawable/ic_shield.xml -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M12 2 L21 6 L21 12 C21 17 17 20.5 12 22 C7 20.5 3 17 3 12 L3 6 Z" fill="#42A5F5"/>
+</svg>

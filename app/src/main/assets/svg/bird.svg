@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original placeholder SVG: the bird. Mirrored by res/drawable/ic_bird.xml -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="9" fill="#FFC93C"/>
+  <circle cx="9" cy="14.5" r="4" fill="#E76F00"/>
+  <circle cx="15" cy="10" r="2" fill="#FFFFFF"/>
+  <circle cx="15.5" cy="10" r="1" fill="#1A1A1A"/>
+  <path d="M4 12 C7 10 10 10 12 12 C10 14 7 14 4 12 Z" fill="#FF7043"/>
+</svg>

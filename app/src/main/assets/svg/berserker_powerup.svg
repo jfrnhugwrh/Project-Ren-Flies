@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original placeholder SVG: berserker powerup. Mirrored by res/drawable/ic_berserker.xml -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M12 2 C7 2 3 6 3 11 C3 14 4.5 16.4 7 18 L7 22 L17 22 L17 18 C19.5 16.4 21 14 21 11 C21 6 17 2 12 2 Z" fill="#FF5252"/>
+  <circle cx="8" cy="11.6" r="1.6" fill="#FFFFFF"/>
+  <circle cx="16" cy="11.6" r="1.6" fill="#FFFFFF"/>
+</svg>
