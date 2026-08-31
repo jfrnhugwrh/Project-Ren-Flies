@@ -319,6 +319,9 @@ class GameEngine(
             if (berserkTimer <= 0f) {
                 berserkTimer = 0f
                 if (activePowerup == PowerUpType.BERSERKER) activePowerup = null
+                // Release obstacles still being dragged mid-pull so they resume
+                // scrolling instead of lingering on the player forever.
+                for (o in obstacles) o.pulled = false
             }
         }
 
@@ -354,11 +357,13 @@ class GameEngine(
             if (dist <= radius) {
                 if (!o.pulled) o.pulled = true
                 o.pullToward(player.x, player.y, dt, config.berserkPullSpeed)
-                val newDist = CollisionSystem.distanceToRect(
-                    player.x, player.y,
-                    o.topRect[0], o.topRect[1], o.topRect[2], o.topRect[3]
-                )
-                if (newDist <= 4f) {
+                // The pull centres the obstacle's GAP on the player, so the pipe
+                // rects always stay ~halfGap away; measure the obstacle's centre
+                // instead and swallow it once it converges on the player.
+                val ox = o.x + o.width / 2f
+                val dx = player.x - ox
+                val dy = player.y - o.gapCenter
+                if (dx * dx + dy * dy <= 36f) {
                     // Obstacle consumed by the field: reward the player.
                     oit.remove()
                     score++

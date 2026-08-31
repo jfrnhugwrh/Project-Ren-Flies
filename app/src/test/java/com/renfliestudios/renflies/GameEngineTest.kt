@@ -186,8 +186,8 @@ class GameEngineTest {
         engine.collectPowerUp(PowerUpType.SHIELD)
         assertTrue(engine.player.hasShield)
 
-        // Force a collision.
-        val o = Obstacle(engine.config, 400f, 400f)
+        // Force a collision: gap well above the bird so it overlaps the pipe.
+        val o = Obstacle(engine.config, 700f, 400f)
         o.x = engine.config.playerX - engine.config.obstacleWidth / 2f
         engine.obstacles.add(o)
         step(engine)
@@ -198,7 +198,7 @@ class GameEngineTest {
 
         // A second hit (after the brief invulnerability) ends the run.
         stepSeconds(engine, 1.2f)
-        val o2 = Obstacle(engine.config, 400f, 400f)
+        val o2 = Obstacle(engine.config, 700f, 400f)
         o2.x = engine.config.playerX - engine.config.obstacleWidth / 2f
         engine.obstacles.add(o2)
         step(engine)
@@ -212,7 +212,7 @@ class GameEngineTest {
         engine.collectPowerUp(PowerUpType.SPEED_BOOST)
         assertTrue(engine.isSpeedBoostActive)
 
-        val o = Obstacle(engine.config, 400f, 400f)
+        val o = Obstacle(engine.config, 700f, 400f)
         o.x = engine.config.playerX - engine.config.obstacleWidth / 2f
         engine.obstacles.add(o)
         step(engine)
@@ -222,7 +222,7 @@ class GameEngineTest {
         // After the boost expires, the same collision would be lethal.
         stepSeconds(engine, engine.config.speedBoostDuration + 0.2f)
         assertFalse(engine.isSpeedBoostActive)
-        val o2 = Obstacle(engine.config, 400f, 400f)
+        val o2 = Obstacle(engine.config, 700f, 400f)
         o2.x = engine.config.playerX - engine.config.obstacleWidth / 2f
         engine.obstacles.add(o2)
         step(engine)
