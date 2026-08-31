@@ -22,10 +22,9 @@ object Leaderboard {
         Entry("TinyTalon", 1180)
     )
 
-}
-
     /** The mock leaderboard including the local player's best score, ranked. */
-fun entries(playerBestScore: Int, playerName: String = "You"): List<Entry> {
-    val all = MOCK_ENTRIES + Entry(playerName, playerBestScore, isPlayer = true)
-    return all.sortedByDescending { it.score }
+    fun entries(playerBestScore: Int, playerName: String = "You"): List<Entry> {
+        val all = MOCK_ENTRIES + Entry(playerName, playerBestScore, isPlayer = true)
+        return all.sortedByDescending { it.score }
+    }
 }
