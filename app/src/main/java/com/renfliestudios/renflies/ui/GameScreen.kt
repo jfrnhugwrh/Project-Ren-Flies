@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.renfliestudios.renflies.data.ProgressUpdater
 import com.renfliestudios.renflies.data.ProgressStore
 import com.renfliestudios.renflies.game.Boss
+import com.renfliestudios.renflies.game.DifficultyManager
 import com.renfliestudios.renflies.game.GameEngine
 import com.renfliestudios.renflies.game.GamePhase
 import com.renfliestudios.renflies.game.Obstacle
@@ -67,14 +68,15 @@ import kotlin.math.min
 fun GameScreen(
     progressStore: ProgressStore,
     audio: AudioFeedback,
+    loadout: Map<PowerUpType, Int> = emptyMap(),
     onExitToMenu: () -> Unit
 ) {
-    val engine = remember {
+    val engine = remember(loadout) {
         GameEngine(
             initialBestScore = progressStore.bestScore,
             audio = audio,
             onRunEnded = { result -> ProgressUpdater.applyRunResult(progressStore, result) }
-        ).also { it.startRun() }
+        ).also { it.startRun(loadout) }
     }
 
     // Recomposition trigger: bumped once per rendered frame.
@@ -115,6 +117,13 @@ fun GameScreen(
 private const val WORLD_W = 720f
 private const val WORLD_H = 1280f
 
+/**
+ * How far (in world units) boundary geometry is extended past the world edges.
+ * This guarantees complete camera coverage on every target aspect ratio so
+ * letterboxed areas never expose empty space behind the ground or pipes.
+ */
+private const val BOUND_EXT = 2000f
+
 private fun DrawScope.drawWorld(engine: GameEngine, tick: Long) {
     val cfg = engine.config
     val scale = min(size.width / WORLD_W, size.height / WORLD_H)
@@ -133,6 +142,12 @@ private fun DrawScope.drawWorld(engine: GameEngine, tick: Long) {
         scale(scale, scale, pivot = Offset.Zero)
         translate(offsetX / scale, offsetY / scale)
     }) {
+        // Distant background band, extended well past the viewport edges.
+        drawRect(
+            Color(0xFF12283F),
+            Offset(-BOUND_EXT, cfg.groundY - 170f),
+            Size(WORLD_W + 2f * BOUND_EXT, 170f + BOUND_EXT)
+        )
         drawGround(cfg.groundY, tick)
         for (o in engine.obstacles) drawObstacle(o)
         for (p in engine.powerups) drawPowerUp(p, tick)
@@ -147,16 +162,32 @@ private fun DrawScope.drawWorld(engine: GameEngine, tick: Long) {
         drawBird(engine, tick)
         if (engine.isBerserkActive) drawBerserkField(engine, tick)
     }
+
+    // Speed-up safe expiry: rapid full-screen white flash (200ms visual cue).
+    if (engine.isSpeedFlashing) {
+        val alpha = engine.speedFlashTimer / engine.config.speedFlashDuration
+        drawRect(Color.White.copy(alpha = alpha), size = size)
+    }
 }
 
 private fun DrawScope.drawGround(groundY: Float, tick: Long) {
-    drawRect(Color(0xFF3E7C4F), Offset(0f, groundY), Size(WORLD_W, WORLD_H - groundY))
-    drawRect(Color(0xFF2E5C3B), Offset(0f, groundY), Size(WORLD_W, 14f))
+    // Extended beyond both horizontal edges (and below the bottom edge) so the
+    // ground never cuts off on wide/ultrawide aspect ratios.
+    drawRect(
+        Color(0xFF3E7C4F),
+        Offset(-BOUND_EXT, groundY),
+        Size(WORLD_W + 2f * BOUND_EXT, WORLD_H - groundY + BOUND_EXT)
+    )
+    drawRect(
+        Color(0xFF2E5C3B),
+        Offset(-BOUND_EXT, groundY),
+        Size(WORLD_W + 2f * BOUND_EXT, 14f)
+    )
     // Scrolling stripes for motion feedback.
     val stripe = 90f
     val shift = (tick.toFloat() * 6f) % stripe
-    var x = -shift
-    while (x < WORLD_W) {
+    var x = -BOUND_EXT - shift
+    while (x < WORLD_W + BOUND_EXT) {
         drawRect(Color(0xFF356B45), Offset(x, groundY + 20f), Size(stripe / 2f, 10f))
         x += stripe
     }
@@ -164,11 +195,12 @@ private fun DrawScope.drawGround(groundY: Float, tick: Long) {
 
 private fun DrawScope.drawObstacle(o: Obstacle) {
     val color = if (o.pulled) AccentRed else AccentGreen
-    // Top pipe.
+    // Top pipe: visually extended far past the top edge so it never cuts off
+    // on tall aspect ratios (collision rects are unchanged).
     drawRoundRect(
         color = color,
-        topLeft = Offset(o.topRect[0], o.topRect[1]),
-        size = Size(o.width, o.topRect[3] - o.topRect[1]),
+        topLeft = Offset(o.topRect[0], o.topRect[1] - BOUND_EXT),
+        size = Size(o.width, o.topRect[3] - o.topRect[1] + BOUND_EXT),
         cornerRadius = CornerRadius(10f, 10f)
     )
     // Bottom pipe.
@@ -305,10 +337,12 @@ private fun DrawScope.drawBird(engine: GameEngine, tick: Long) {
         Color(0xFFFF7043)
     )
 
-    // One-hit shield aura.
+    // Stacking shield aura: one ring per active stack.
     if (p.hasShield) {
         val alpha = 0.5f + 0.3f * kotlin.math.sin(tick.toFloat() * 0.3f)
-        drawCircle(AccentCyan.copy(alpha = alpha), r + 12f, center, style = Stroke(6f))
+        for (i in 0 until p.shieldStacks) {
+            drawCircle(AccentCyan.copy(alpha = alpha), r + 10f + i * 5f, center, style = Stroke(4f))
+        }
     }
     // Post-hit invulnerability flicker.
     if (p.invulnTimer > 0f) {
@@ -360,6 +394,12 @@ private fun Hud(engine: GameEngine, tick: Long, onExitToMenu: () -> Unit) {
                 fontSize = 16.sp,
                 color = Color.LightGray
             )
+            Text(
+                text = "Difficulty: ${DifficultyManager.current.displayName}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = AccentPurple
+            )
         }
 
         // Top-right: next boss milestone.
@@ -375,7 +415,8 @@ private fun Hud(engine: GameEngine, tick: Long, onExitToMenu: () -> Unit) {
         // Active powerup indicator.
         engine.activePowerup?.let { type ->
             val durationText = when (type) {
-                PowerUpType.SHIELD -> "SHIELD READY"
+                PowerUpType.SHIELD ->
+                    "SHIELD ×${engine.player.shieldStacks}"
                 PowerUpType.SPEED_BOOST ->
                     "SPEED BOOST  ${"%.1f".format(engine.speedBoostTimer)}s"
                 PowerUpType.BERSERKER ->
@@ -449,6 +490,37 @@ private fun Hud(engine: GameEngine, tick: Long, onExitToMenu: () -> Unit) {
 
         BossMessages(engine, tick)
         GameOverOverlay(engine, onExitToMenu)
+
+        // Stored single-use loadout charges: tap to trigger mid-run.
+        val storedTypes = PowerUpType.values().filter { engine.storedPowerupCount(it) > 0 }
+        if (storedTypes.isNotEmpty() && engine.phase != GamePhase.GAME_OVER) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                storedTypes.forEach { type ->
+                    Button(
+                        onClick = { engine.useStoredPowerUp(type) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = when (type) {
+                                PowerUpType.SHIELD -> AccentCyan
+                                PowerUpType.SPEED_BOOST -> AccentYellow
+                                PowerUpType.BERSERKER -> AccentRed
+                            }
+                        )
+                    ) {
+                        Text(
+                            "${type.displayName} ×${engine.storedPowerupCount(type)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.Black
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

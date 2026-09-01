@@ -1,5 +1,7 @@
 package com.renfliestudios.renflies
 
+import com.renfliestudios.renflies.game.Difficulty
+import com.renfliestudios.renflies.game.DifficultyManager
 import com.renfliestudios.renflies.game.GameConfig
 import com.renfliestudios.renflies.game.GameEngine
 import com.renfliestudios.renflies.game.GamePhase
@@ -183,7 +185,7 @@ class GameEngineTest {
     // ---- Powerups ---------------------------------------------------------
 
     @Test
-    fun `shield absorbs exactly one obstacle hit`() {
+    fun `shield absorbs exactly one obstacle hit per stack`() {
         val engine = newEngine()
         engine.startRun()
         engine.collectPowerUp(PowerUpType.SHIELD)
@@ -196,7 +198,7 @@ class GameEngineTest {
         step(engine)
 
         assertEquals("Player should survive the hit", GamePhase.PLAYING, engine.phase)
-        assertFalse("Shield must be consumed", engine.player.hasShield)
+        assertFalse("Shield stack must be consumed", engine.player.hasShield)
         assertTrue("Obstacle removed on shield break", engine.obstacles.isEmpty())
 
         // A second hit (after the brief invulnerability) ends the run.
@@ -206,6 +208,92 @@ class GameEngineTest {
         engine.obstacles.add(o2)
         step(engine)
         assertEquals("Second hit without shield ends the run", GamePhase.GAME_OVER, engine.phase)
+    }
+
+    @Test
+    fun `shield stacks cap at five and each pipe hit consumes one stack`() {
+        val engine = newEngine()
+        engine.startRun()
+
+        // Six pickups, only five stacks stick.
+        repeat(6) { engine.collectPowerUp(PowerUpType.SHIELD) }
+        assertEquals(5, engine.player.shieldStacks)
+
+        repeat(5) {
+            val o = Obstacle(engine.config, 700f, 400f)
+            o.x = engine.config.playerX - engine.config.obstacleWidth / 2f
+            engine.obstacles.add(o)
+            step(engine)
+            stepSeconds(engine, 1.2f) // outlast the invulnerability grace
+            assertEquals(GamePhase.PLAYING, engine.phase)
+            assertEquals(4 - it, engine.player.shieldStacks)
+        }
+
+        // Sixth hit with zero stacks left is fatal.
+        val o = Obstacle(engine.config, 700f, 400f)
+        o.x = engine.config.playerX - engine.config.obstacleWidth / 2f
+        engine.obstacles.add(o)
+        step(engine)
+        assertEquals(GamePhase.GAME_OVER, engine.phase)
+    }
+
+    @Test
+    fun `ceiling collision ends the run regardless of shield stacks`() {
+        val engine = newEngine()
+        engine.startRun()
+        repeat(5) { engine.collectPowerUp(PowerUpType.SHIELD) }
+        assertEquals(5, engine.player.shieldStacks)
+
+        // Slam into the ceiling: shields never protect against it.
+        engine.player.y = engine.player.radius
+        engine.player.vy = -800f
+        step(engine)
+
+        assertEquals(GamePhase.GAME_OVER, engine.phase)
+    }
+
+    @Test
+    fun `each shield stack adds an incremental gravity weight penalty`() {
+        val base = newEngine()
+        val heavy = newEngine()
+        base.startRun()
+        heavy.startRun()
+        repeat(5) { heavy.collectPowerUp(PowerUpType.SHIELD) }
+
+        base.player.y = 300f
+        base.player.vy = 0f
+        heavy.player.y = 300f
+        heavy.player.vy = 0f
+        step(base)
+        step(heavy)
+
+        assertTrue(
+            "Heavier bird must fall further in the same frame",
+            heavy.player.y > base.player.y
+        )
+    }
+
+    @Test
+    fun `speed boost expiry flashes and clears every on-screen obstacle`() {
+        val engine = newEngine()
+        engine.startRun()
+        engine.collectPowerUp(PowerUpType.SPEED_BOOST)
+
+        val o = Obstacle(engine.config, 700f, 400f)
+        o.x = engine.config.playerX
+        engine.obstacles.add(o)
+
+        // Step until the boost has just expired.
+        var frames = 0
+        while (engine.isSpeedBoostActive && frames < 600) {
+            engine.player.vy = 0f
+            engine.player.y = 400f
+            engine.update(dt)
+            frames++
+        }
+        assertFalse(engine.isSpeedBoostActive)
+        assertTrue("White flash must be visible right after expiry", engine.isSpeedFlashing)
+        assertTrue("All on-screen obstacles must despawn", engine.obstacles.isEmpty())
     }
 
     @Test
@@ -295,15 +383,18 @@ class GameEngineTest {
     }
 
     @Test
-    fun `player hit by boss bullet consumes shield instead of ending run`() {
+    fun `boss bullets ignore shield stacks and end the run`() {
         val engine = newEngine()
         engine.startRun()
         stepPlayingUntilScore(engine, targetScore = 100)
         stepSeconds(engine, 3f)
         assertEquals(GamePhase.BOSS, engine.phase)
         engine.collectPowerUp(PowerUpType.SHIELD)
+        engine.collectPowerUp(PowerUpType.SHIELD)
+        assertTrue(engine.player.hasShield)
 
         // Place a boss bullet on top of the player and let it register.
+        // Shields protect ONLY against pipe collisions.
         val bullet = com.renfliestudios.renflies.game.Bullet()
         bullet.launch(
             engine.player.x, engine.player.y, 0f, 0f, 11f, fromPlayer = false
@@ -313,7 +404,145 @@ class GameEngineTest {
         engine.player.y = 400f
         engine.update(dt)
 
-        assertEquals("Shield should absorb the bullet", GamePhase.BOSS, engine.phase)
-        assertFalse(engine.player.hasShield)
+        assertEquals("Bullets must bypass shield stacks", GamePhase.GAME_OVER, engine.phase)
+    }
+
+    // ---- Difficulty system ---------------------------------------------------
+
+    @Test
+    fun `difficulty scales scroll speed`() {
+        val easy = newEngine()
+        DifficultyManager.current = Difficulty.EASY
+        easy.startRun()
+        easy.spawnObstacle(400f)
+
+        val hard = newEngine()
+        DifficultyManager.current = Difficulty.HARD
+        hard.startRun()
+        hard.spawnObstacle(400f)
+
+        repeat(60) {
+            easy.player.vy = 0f; easy.player.y = 400f; easy.update(dt)
+            hard.player.vy = 0f; hard.player.y = 400f; hard.update(dt)
+        }
+        val easyX = easy.obstacles.first().x
+        val hardX = hard.obstacles.first().x
+        assertTrue("Hard (1.25x) must scroll faster than Easy (0.75x)", hardX < easyX)
+        DifficultyManager.current = Difficulty.MEDIUM
+    }
+
+    @Test
+    fun `devilish mode never spawns powerups`() {
+        DifficultyManager.current = Difficulty.DEVILISH
+        val engine = newEngine()
+        engine.startRun()
+        var elapsed = 0f
+        while (engine.phase == GamePhase.PLAYING && elapsed < 40f) {
+            // Gap-following autopilot keeps the bird alive indefinitely.
+            val nearest = engine.obstacles
+                .filter { !it.scored && it.x + it.width > engine.player.x - engine.player.radius }
+                .minByOrNull { it.x }
+            if (nearest != null && nearest.x < 500f) {
+                engine.player.y = nearest.gapCenter
+            } else {
+                engine.player.y = 640f
+            }
+            engine.player.vy = 0f
+            engine.update(dt)
+            elapsed += dt
+        }
+        assertEquals(GamePhase.PLAYING, engine.phase)
+        assertTrue("Devilish must have zero powerup spawns", engine.powerups.isEmpty())
+        DifficultyManager.current = Difficulty.MEDIUM
+    }
+
+    @Test
+    fun `consecutive gap centers stay within the max shift clamp`() {
+        DifficultyManager.current = Difficulty.HARD
+        val engine = newEngine()
+        engine.startRun()
+        val centers = ArrayList<Float>()
+        var elapsed = 0f
+        while (elapsed < 50f && engine.phase == GamePhase.PLAYING) {
+            val nearest = engine.obstacles
+                .filter { !it.scored && it.x + it.width > engine.player.x - engine.player.radius }
+                .minByOrNull { it.x }
+            if (nearest != null && nearest.x < 500f) {
+                engine.player.y = nearest.gapCenter
+            } else {
+                engine.player.y = 640f
+            }
+            engine.player.vy = 0f
+            engine.update(dt)
+            elapsed += dt
+            // A fresh spawn sits exactly at the right edge on its first frame.
+            engine.obstacles.firstOrNull {
+                it.x >= engine.config.worldWidth + engine.config.obstacleWidth - 0.5f
+            }?.let {
+                if (centers.isEmpty() || centers.last() != it.gapCenter) centers.add(it.gapCenter)
+            }
+        }
+        assertTrue("Expected many spawns, got ${centers.size}", centers.size >= 10)
+        val maxShift = Difficulty.HARD.maxGapShift
+        for (i in 1 until centers.size) {
+            assertTrue(
+                "Gap moved " + Math.abs(centers[i] - centers[i - 1]) + "px > $maxShift",
+                Math.abs(centers[i] - centers[i - 1]) <= maxShift + 1f
+            )
+        }
+        DifficultyManager.current = Difficulty.MEDIUM
+    }
+
+    // ---- Loadout ---------------------------------------------------------
+
+    @Test
+    fun `loadout charges are stored once per run and usable mid-run`() {
+        val engine = newEngine()
+        engine.startRun(
+            mapOf(PowerUpType.SHIELD to 2, PowerUpType.SPEED_BOOST to 1)
+        )
+        assertEquals(2, engine.storedPowerupCount(PowerUpType.SHIELD))
+        assertEquals(1, engine.storedPowerupCount(PowerUpType.SPEED_BOOST))
+
+        assertTrue(engine.useStoredPowerUp(PowerUpType.SPEED_BOOST))
+        assertFalse("Charges are single-use", engine.useStoredPowerUp(PowerUpType.SPEED_BOOST))
+        assertTrue(engine.isSpeedBoostActive)
+
+        assertTrue(engine.useStoredPowerUp(PowerUpType.SHIELD))
+        assertEquals(1, engine.player.shieldStacks)
+        assertEquals(1, engine.storedPowerupCount(PowerUpType.SHIELD))
+
+        // A fresh run resets the loadout charges.
+        engine.startRun()
+        assertEquals(0, engine.storedPowerupCount(PowerUpType.SHIELD))
+    }
+
+    @Test
+    fun `berserker shifts upcoming pipes away from the bird and absorbs projectiles`() {
+        val engine = newEngine()
+        engine.startRun()
+        engine.collectPowerUp(PowerUpType.BERSERKER)
+
+        val o = Obstacle(engine.config, engine.player.y + 20f, 400f)
+        o.x = engine.player.x + 700f // upcoming, outside the field radius
+        engine.obstacles.add(o)
+        val before = o.gapCenter
+
+        var hookCalls = 0
+        engine.onProjectileAbsorbed = { _, _ -> hookCalls++ }
+        val bullet = com.renfliestudios.renflies.game.Bullet()
+        bullet.launch(engine.player.x, engine.player.y, 0f, 0f, 11f, fromPlayer = false)
+        engine.bossBullets.add(bullet)
+
+        repeat(30) {
+            engine.player.vy = 0f
+            engine.player.y = 400f
+            engine.update(dt)
+        }
+
+        assertTrue("Upcoming gap must drift away from the bird", o.gapCenter > before)
+        assertEquals(1, engine.projectilesAbsorbed)
+        assertEquals(1, hookCalls)
+        assertTrue(engine.bossBullets.isEmpty())
     }
 }

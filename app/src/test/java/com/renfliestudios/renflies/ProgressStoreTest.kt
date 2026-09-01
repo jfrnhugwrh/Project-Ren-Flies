@@ -86,4 +86,29 @@ class ProgressStoreTest {
         assertFalse(store.soundEnabled)
         assertTrue(store.bestScore == 77)
     }
+
+    @Test
+    fun `reaching new battle pass levels grants single-use consumable rewards`() {
+        val store = InMemoryProgressStore()
+        // 250 XP reaches level 3: level 2 is an Emote (no inventory effect),
+        // level 3 is a Shield Charge (single-use consumable).
+        ProgressUpdater.applyRunResult(store, result(score = 0, best = 0, newBest = false, xp = 250))
+        assertEquals("Level 3 grants one Shield Charge", 1, store.ownedShields)
+        assertEquals(0, store.ownedSpeedBoosts)
+        assertEquals(0, store.ownedBerserkers)
+    }
+
+    @Test
+    fun `grantLevelRewards only grants consumables for newly passed levels`() {
+        val store = InMemoryProgressStore()
+        // Levels 1..6: level 3 is a Shield Charge, level 6 is a Speed Charge.
+        ProgressUpdater.grantLevelRewards(store, 0, 6)
+        assertEquals(1, store.ownedShields)     // level 3
+        assertEquals(1, store.ownedSpeedBoosts) // level 6
+        assertEquals(0, store.ownedBerserkers)
+        // Re-granting an already-passed level must not double-issue (range is
+        // exclusive of levelBefore).
+        ProgressUpdater.grantLevelRewards(store, 6, 6)
+        assertEquals(1, store.ownedSpeedBoosts)
+    }
 }

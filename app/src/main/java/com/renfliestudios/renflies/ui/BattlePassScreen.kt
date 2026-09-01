@@ -135,12 +135,13 @@ fun BattlePassScreen(progressStore: ProgressStore, onBack: () -> Unit) {
                             color = if (unlocked) AccentGreen else Color.White
                         )
                         Text(
-                            text = "${level.xpRequired} XP · Reward: ${level.reward.name}",
+                            text = "${level.xpRequired} XP · " +
+                                rewardTypeLabel(level.reward.type) + ": " + level.reward.name,
                             fontSize = 13.sp,
                             color = Color.LightGray
                         )
                     }
-                    RewardIconBox(level.reward.iconType, unlocked)
+                    RewardIconBox(level.reward, unlocked)
                 }
             }
         }
@@ -155,13 +156,13 @@ fun BattlePassScreen(progressStore: ProgressStore, onBack: () -> Unit) {
 }
 
 @Composable
-private fun RewardIconBox(iconType: BattlePass.RewardIcon, unlocked: Boolean) {
-    val resId = when (iconType) {
+private fun RewardIconBox(reward: BattlePass.Reward, unlocked: Boolean) {
+    val resId = when (reward.iconType) {
         BattlePass.RewardIcon.BIRD -> R.drawable.ic_bird
-        BattlePass.RewardIcon.COINS -> R.drawable.ic_trophy
-        BattlePass.RewardIcon.TRAIL -> R.drawable.ic_speed
-        BattlePass.RewardIcon.EFFECT -> R.drawable.ic_berserker
-        BattlePass.RewardIcon.WINGS -> R.drawable.ic_bird
+        BattlePass.RewardIcon.EMOTE -> R.drawable.ic_pass
+        BattlePass.RewardIcon.SHIELD -> R.drawable.ic_shield
+        BattlePass.RewardIcon.SPEED -> R.drawable.ic_speed
+        BattlePass.RewardIcon.BERSERKER -> R.drawable.ic_berserker
         BattlePass.RewardIcon.BADGE -> R.drawable.ic_pass
     }
     Image(
@@ -170,6 +171,12 @@ private fun RewardIconBox(iconType: BattlePass.RewardIcon, unlocked: Boolean) {
         modifier = Modifier.size(24.dp),
         alpha = if (unlocked) 1f else 0.4f
     )
+}
+
+private fun rewardTypeLabel(type: BattlePass.RewardType): String = when (type) {
+    BattlePass.RewardType.SKIN -> "Skin"
+    BattlePass.RewardType.EMOTE -> "Emote"
+    BattlePass.RewardType.CONSUMABLE -> "Single-Use"
 }
 
 private val MaterialBackground = Color(0xFF0D1B2A)

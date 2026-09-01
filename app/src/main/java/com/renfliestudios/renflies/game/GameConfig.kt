@@ -42,6 +42,18 @@ data class GameConfig(
     val berserkFieldRadius: Float = 230f,
     val berserkPullSpeed: Float = 520f,
 
+    // Shield stacking rework (Section 4)
+    val shieldMaxStacks: Int = 5,
+    /** Incremental gravity multiplier added per active shield stack. */
+    val shieldWeightModifier: Float = 0.12f,
+
+    // Speed-up safe expiry (Section 4)
+    val speedFlashDuration: Float = 0.2f,
+
+    // Berserker environment shifting (Section 4)
+    val berserkShiftRate: Float = 160f,
+    val berserkShiftDeadZone: Float = 60f,
+
     // Boss
     val bossIntroDuration: Float = 2.5f,
     val bossClearDuration: Float = 2f,

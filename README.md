@@ -13,6 +13,15 @@ three powerups, a mock leaderboard, and a fake battle-pass progression system.
 
 - **Flappy gameplay loop** — tap to flap, gravity pulls you down, pipes scroll
   right-to-left, +1 score per pipe passed, gradually increasing difficulty.
+- **Global difficulty system** — `DifficultyManager` with Easy (0.75x speed,
+  two-pattern layouts, wide margins, frequent powerups), Medium (default),
+  Hard (1.25x, extreme layouts, tight margins, rare powerups) and Devilish
+  (1.5x, maximum complexity, zero powerup spawns). Procedural pipe generation
+  guarantees navigable gaps: corridor-clamped heights plus a max-shift clamp
+  between consecutive gaps.
+- **Pre-game loadout** — equip one instance of each owned single-use
+  consumable before a run; charges are consumed at run start, reset post-game,
+  and triggerable mid-run from HUD buttons.
 - **Boss encounters at every 100-point milestone** with a deliberate
   `BOSS INCOMING!` intro, health bar, and timed encounter.
 - **Boss shield** — the boss is invulnerable until its shield drains
@@ -21,16 +30,24 @@ three powerups, a mock leaderboard, and a fake battle-pass progression system.
 - **Three bullet patterns** — radial burst, player-aimed spread fan, and a
   rotating double spiral. Tap during a boss fight to flap *and* shoot back.
 - **Powerups**:
-  - 🛡 **Shield** — absorbs exactly one hit (obstacle or bullet).
+  - 🛡 **Shield (stacking heavy armor)** — up to 5 stacks; each pipe hit
+    consumes one stack; every active stack adds an incremental gravity/weight
+    penalty. Protects ONLY against pipe collisions — ground/ceiling hits are
+    always fatal.
   - ⚡ **Speed Boost** — pass through obstacles safely for 6s, faster scroll,
-    floatier gravity. Does *not* protect against boss bullets.
+    floatier gravity. On expiry: a 200ms full-screen white flash plus instant
+    despawn of every on-screen obstacle (safe expiry). Does *not* protect
+    against boss bullets.
   - 💀 **Berserker** — a destructive magnetic field that drags obstacles in,
-    destroys them, and awards their score; also vaporizes boss bullets
-    defensively (never damages the boss). Boss shields can't be bypassed.
+    destroys them, and awards their score; upcoming pipe gaps shift away from
+    the bird while active; vaporizes boss bullets defensively via a projectile
+    absorption hook (ready for Milestone 3 boss systems). Boss shields can't
+    be bypassed.
 - **Game states** — `MENU → PLAYING → BOSS_INTRO → BOSS → BOSS_CLEAR → GAME_OVER`.
 - **Mock leaderboard** — fictional entries ranked together with your best score.
-- **Fake battle pass** — 20 levels with XP thresholds and rewards, earned from
-  score (+1 XP/point), bosses (+250 XP each) and run completion (+50 XP).
+- **Fake battle pass** — 20 levels with XP thresholds and rewards across three
+  unlock types (Skins, Emotes, Single-Use Consumables), earned from score
+  (+1 XP/point), bosses (+250 XP each) and run completion (+50 XP).
 - **Persistence** — best score, XP, lifetime stats via SharedPreferences.
 - **Delta-time game loop** — frame-rate independent, allocation-light updates.
 - **Generated audio** — placeholder sound effects via `ToneGenerator` behind an
@@ -48,6 +65,7 @@ app/src/main/java/com/renfliestudios/renflies/
 ├── MainActivity.kt              # Compose entry point, wiring
 ├── game/                        # PURE Kotlin - no Android deps, fully unit tested
 │   ├── GameConfig.kt            # All tuning constants + difficulty curves
+│   ├── DifficultyManager.kt     # Difficulty enum/matrix + global manager
 │   ├── GameState.kt             # GamePhase enum + RunResult
 │   ├── GameEngine.kt            # Delta-time update loop, scoring, milestones,
 │   │                            #   boss lifecycle, powerup effects, collisions
@@ -65,6 +83,7 @@ app/src/main/java/com/renfliestudios/renflies/
 └── ui/
     ├── RenFliesApp.kt           # Screen navigation
     ├── MainMenuScreen.kt        # Title, play, best score, buttons, sound toggle
+    ├── LoadoutScreen.kt         # Difficulty picker + pre-game consumable loadout
     ├── GameScreen.kt            # Frame loop + Canvas renderer + HUD + overlays
     ├── LeaderboardScreen.kt     # Mock leaderboard UI
     ├── BattlePassScreen.kt      # Levels, XP bar, rewards

@@ -60,6 +60,32 @@ class GameEngine(
     private var nextMilestone = 100
     private var bossClearWasDefeat = false
 
+    // ---- Loadout & effect state --------------------------------------------
+    /** Single-use charges granted from the pre-game loadout. Reset each run. */
+    private val storedPowerups = HashMap<PowerUpType, Int>()
+
+    /** Counts down while the Speed Boost safe-expiry white flash is visible. */
+    var speedFlashTimer: Float = 0f
+        private set
+    val isSpeedFlashing: Boolean get() = speedFlashTimer > 0f
+
+    /** Projectiles vaporized by the Berserker field this run. */
+    var projectilesAbsorbed: Int = 0
+        private set
+
+    /**
+     * Framework hook for Milestone 3 boss systems: invoked whenever an incoming
+     * projectile entity is absorbed (e.g. by the Berserker field).
+     */
+    var onProjectileAbsorbed: ((x: Float, y: Float) -> Unit)? = null
+
+    // ---- Procedural obstacle generation state -------------------------------
+    private var lastGapCenter: Float = 640f
+    private var patternFlip: Boolean = false
+
+    /** The active global difficulty (switchable from the menu at any time). */
+    private val difficulty: Difficulty get() = DifficultyManager.current
+
     val isSpeedBoostActive: Boolean get() = speedBoostTimer > 0f
     val isBerserkActive: Boolean get() = berserkTimer > 0f
     val nextBossMilestone: Int get() = nextMilestone
@@ -71,7 +97,7 @@ class GameEngine(
     // ---- Lifecycle --------------------------------------------------------
 
     /** Starts a fresh run from the menu or after game over. */
-    fun startRun() {
+    fun startRun(loadout: Map<PowerUpType, Int> = emptyMap()) {
         score = 0
         obstaclesPassed = 0
         bossesDefeated = 0
@@ -84,6 +110,8 @@ class GameEngine(
         activePowerup = null
         speedBoostTimer = 0f
         berserkTimer = 0f
+        speedFlashTimer = 0f
+        projectilesAbsorbed = 0
         phaseTimer = 0f
         obstacleTimer = 1.2f
         powerupTimer = random.nextFloat() * (config.powerupMaxInterval - config.powerupMinInterval) +
@@ -91,6 +119,14 @@ class GameEngine(
         bulletCooldown = 0f
         nextMilestone = 100
         bossClearMessage = ""
+        // Deterministic procedural generation state.
+        lastGapCenter = config.worldHeight / 2f
+        patternFlip = false
+        // Loadout: single-use consumable charges, reset every run.
+        storedPowerups.clear()
+        for ((type, count) in loadout) {
+            if (count > 0) storedPowerups[type] = (storedPowerups[type] ?: 0) + count
+        }
         player.reset()
         lastRunResult = null
         phase = GamePhase.PLAYING
@@ -131,17 +167,12 @@ class GameEngine(
         updateAmbient(dt)
         updateBerserkField(dt)
 
-        val speed = config.obstacleSpeedFor(score) *
-            (if (isSpeedBoostActive) config.speedBoostMultiplier else 1f)
+        val speed = scrollSpeed()
 
-        // Spawn obstacles.
+        // Spawn obstacles with a difficulty-driven, always-navigable pattern.
         obstacleTimer -= dt
         if (obstacleTimer <= 0f) {
-            val margin = 80f
-            val halfGap = config.gapSizeFor(score) / 2f
-            val low = halfGap + margin
-            val high = config.groundY - halfGap - margin
-            spawnObstacle(low + random.nextFloat() * (high - low))
+            obstacles.add(Obstacle(config, nextGapCenter(), currentGapSize()))
             obstacleTimer = config.obstacleSpacing / speed
         }
 
@@ -164,6 +195,9 @@ class GameEngine(
             }
         }
 
+        // Berserker environment shifting: upcoming pipes drift away from the bird.
+        if (isBerserkActive) shiftUpcomingObstacles(dt)
+
         // Bird vs obstacles. Iterate with an explicit iterator because a
         // shield hit removes the obstacle from the list mid-loop.
         val hitIt = obstacles.iterator()
@@ -179,13 +213,18 @@ class GameEngine(
         // Powerup pickup.
         collectPowerUpCollisions()
 
-        // Spawn powerups.
+        // Spawn powerups (frequency scaled by difficulty; disabled on Devilish).
         powerupTimer -= dt
         if (powerupTimer <= 0f) {
-            spawnPowerUp()
-            powerupTimer = random.nextFloat() *
-                (config.powerupMaxInterval - config.powerupMinInterval) +
-                config.powerupMinInterval
+            if (difficulty.powerupsEnabled && obstacles.isNotEmpty()) {
+                spawnPowerUp()
+                powerupTimer = (random.nextFloat() *
+                    (config.powerupMaxInterval - config.powerupMinInterval) +
+                    config.powerupMinInterval) * difficulty.powerupIntervalMultiplier
+            } else {
+                // Devilish never spawns powerups; empty fields simply retry soon.
+                powerupTimer = 1f
+            }
         }
     }
 
@@ -302,10 +341,13 @@ class GameEngine(
 
     /** Player physics, powerup timers, powerup drift; runs in all active phases. */
     private fun updateAmbient(dt: Float) {
-        val gravityScale = if (isSpeedBoostActive) config.speedBoostGravityScale else 1f
+        val gravityScale = (if (isSpeedBoostActive) config.speedBoostGravityScale else 1f) *
+            player.weightMultiplier
         player.update(dt, gravityScale)
 
-        if (player.isOnGround) {
+        // Ground AND ceiling are always lethal: shield stacks protect ONLY
+        // against pipe collisions.
+        if (player.hitCeiling || player.isOnGround) {
             endRun()
             return
         }
@@ -315,7 +357,15 @@ class GameEngine(
             if (speedBoostTimer <= 0f) {
                 speedBoostTimer = 0f
                 if (activePowerup == PowerUpType.SPEED_BOOST) activePowerup = null
+                // Safe expiry: white flash + instantly despawn every obstacle
+                // on screen so the player never dies to a pipe they could not
+                // react to after the boost ended.
+                speedFlashTimer = config.speedFlashDuration
+                obstacles.clear()
             }
+        }
+        if (speedFlashTimer > 0f) {
+            speedFlashTimer = (speedFlashTimer - dt).coerceAtLeast(0f)
         }
         if (berserkTimer > 0f) {
             berserkTimer -= dt
@@ -328,8 +378,7 @@ class GameEngine(
             }
         }
 
-        val speed = config.obstacleSpeedFor(score) *
-            (if (isSpeedBoostActive) config.speedBoostMultiplier else 1f)
+        val speed = scrollSpeed()
         val pit = powerups.iterator()
         while (pit.hasNext()) {
             val p = pit.next()
@@ -385,6 +434,9 @@ class GameEngine(
             val dy = bullet.y - player.y
             if (dx * dx + dy * dy <= radius * radius) {
                 bit.remove()
+                // Absorb the projectile (framework hook for Milestone 3 bosses).
+                projectilesAbsorbed++
+                onProjectileAbsorbed?.invoke(bullet.x, bullet.y)
             }
         }
     }
@@ -411,7 +463,13 @@ class GameEngine(
             else -> PowerUpType.BERSERKER
         }
         val p = PowerUp(type)
-        val y = 200f + random.nextFloat() * (config.groundY - 400f)
+        // Restrict spawns strictly to valid path corridors: align the powerup
+        // with the gap centre of the farthest (newest) pipe so it can always be
+        // collected while flying through the gap. Falls back to mid-height when
+        // no pipe exists yet.
+        val corridor = obstacles.maxByOrNull { it.x }
+        val y = (corridor?.gapCenter ?: config.worldHeight / 2f)
+            .coerceIn(config.powerupRadius + 60f, config.groundY - config.powerupRadius - 60f)
         p.spawn(config.worldWidth + config.powerupRadius, y)
         powerups.add(p)
     }
@@ -429,15 +487,15 @@ class GameEngine(
 
     /**
      * Handles a bird-vs-obstacle hit. Returns true when the obstacle was
-     * consumed by a shield (the caller removes it from the list); false when
-     * it should remain (grace period or the run just ended).
+     * consumed by a shield stack (the caller removes it from the list); false
+     * when it should remain (grace period or the run just ended).
      */
     private fun onPlayerHitByObstacle(): Boolean {
         if (player.hasShield) {
-            // One-hit shield: absorb exactly this collision.
-            player.hasShield = false
+            // Stacking heavy armor: each pipe hit consumes exactly one stack.
+            player.consumeShieldStack()
             player.invulnTimer = config.invulnerabilityDuration
-            activePowerup = null
+            if (!player.hasShield) activePowerup = null
             audio.shieldBreak()
             return true
         }
@@ -450,16 +508,10 @@ class GameEngine(
     }
 
     private fun onPlayerHitByBullet() {
-        if (player.hasShield) {
-            player.hasShield = false
-            player.invulnTimer = config.invulnerabilityDuration
-            activePowerup = null
-            audio.shieldBreak()
-        } else if (player.invulnTimer > 0f) {
-            return
-        } else {
-            endRun()
-        }
+        // Shields protect ONLY against pipe collisions: bullets ignore stacks
+        // entirely. The brief post-shield-break grace period still applies.
+        if (player.invulnTimer > 0f) return
+        endRun()
     }
 
     private fun checkMilestone() {
@@ -498,7 +550,7 @@ class GameEngine(
         audio.powerupPickup()
         when (type) {
             PowerUpType.SHIELD -> {
-                player.hasShield = true
+                player.addShieldStack()
                 activePowerup = PowerUpType.SHIELD
             }
             PowerUpType.SPEED_BOOST -> {
@@ -513,11 +565,110 @@ class GameEngine(
         }
     }
 
+    // ---- Loadout: stored single-use charges --------------------------------
+
+    /** Number of stored single-use charges for [type] (granted from the loadout). */
+    fun storedPowerupCount(type: PowerUpType): Int = storedPowerups[type] ?: 0
+
+    /** Consumes one stored charge and applies its effect. Returns true on success. */
+    fun useStoredPowerUp(type: PowerUpType): Boolean {
+        val count = storedPowerups[type] ?: return false
+        if (count <= 0) return false
+        if (count == 1) storedPowerups.remove(type) else storedPowerups[type] = count - 1
+        collectPowerUp(type)
+        return true
+    }
+
+    // ---- Difficulty-aware generation helpers -------------------------------
+
+    /** Current scroll speed: base curve x difficulty x speed-boost multiplier. */
+    private fun scrollSpeed(): Float =
+        config.obstacleSpeedFor(score) * difficulty.speedMultiplier *
+            (if (isSpeedBoostActive) config.speedBoostMultiplier else 1f)
+
+    /** Current gap size: score-based curve x difficulty, hard-clamped. */
+    private fun currentGapSize(): Float =
+        (config.gapSizeFor(score) * difficulty.gapSizeMultiplier)
+            .coerceAtLeast(config.minGapSize * 0.8f)
+
+    /**
+     * Deterministic, always-navigable gap centre generation.
+     *
+     * Guarantees:
+     *  - the gap never overlaps the ceiling/floor ([GameConfig]-clamped corridor
+     *    with a difficulty-defined margin),
+     *  - consecutive gaps never require an impossible vertical jump
+     *    ([Difficulty.maxGapShift] clamp).
+     */
+    private fun nextGapCenter(): Float {
+        val d = difficulty
+        val halfGap = currentGapSize() / 2f
+        val low = halfGap + d.edgeMargin
+        val high = config.groundY - halfGap - d.edgeMargin
+        if (high <= low) return (low + high) / 2f
+
+        val shiftLow = (lastGapCenter - d.maxGapShift).coerceAtLeast(low)
+        val shiftHigh = (lastGapCenter + d.maxGapShift).coerceAtMost(high)
+
+        val center = when (d.complexity) {
+            // Simple: alternate between exactly two patterns (upper / lower third).
+            PipeComplexity.SIMPLE -> {
+                patternFlip = !patternFlip
+                val t = if (patternFlip) 0.3f else 0.7f
+                shiftLow + (shiftHigh - shiftLow) * t
+            }
+            // Standard: uniform procedural.
+            PipeComplexity.STANDARD -> shiftLow + random.nextFloat() * (shiftHigh - shiftLow)
+            // High complexity: frequent extreme (but reachable) placements.
+            PipeComplexity.HIGH -> {
+                if (random.nextFloat() < 0.35f) {
+                    if (random.nextBoolean()) shiftLow else shiftHigh
+                } else {
+                    shiftLow + random.nextFloat() * (shiftHigh - shiftLow)
+                }
+            }
+            // Maximum complexity: mostly extreme placements.
+            PipeComplexity.MAXIMUM -> {
+                if (random.nextFloat() < 0.6f) {
+                    if (random.nextBoolean()) shiftLow else shiftHigh
+                } else {
+                    shiftLow + random.nextFloat() * (shiftHigh - shiftLow)
+                }
+            }
+        }
+        val clamped = center.coerceIn(low, high)
+        lastGapCenter = clamped
+        return clamped
+    }
+
+    /**
+     * Berserker environment shifting: while the field is active, the gaps of
+     * upcoming pipes drift away from the bird's current vertical position
+     * (clamped to the navigable corridor).
+     */
+    private fun shiftUpcomingObstacles(dt: Float) {
+        val halfGap = currentGapSize() / 2f
+        val low = halfGap + 60f
+        val high = config.groundY - halfGap - 60f
+        for (o in obstacles) {
+            if (o.pulled || o.x + o.width < player.x) continue
+            val delta = o.gapCenter - player.y
+            if (kotlin.math.abs(delta) < config.berserkShiftDeadZone) {
+                val dir = if (delta >= 0f) 1f else -1f
+                o.gapCenter = (o.gapCenter + dir * config.berserkShiftRate * dt)
+                    .coerceIn(low, high)
+                o.refreshRects()
+            }
+        }
+    }
+
     /** Spawns an obstacle pair with the given gap center (public for tests). */
     fun spawnObstacle(gapCenter: Float) {
-        val halfGap = config.gapSizeFor(score) / 2f
+        val gap = currentGapSize()
+        val halfGap = gap / 2f
         val clamped = gapCenter.coerceIn(halfGap + 60f, config.groundY - halfGap - 60f)
-        obstacles.add(Obstacle(config, clamped, config.gapSizeFor(score)))
+        lastGapCenter = clamped
+        obstacles.add(Obstacle(config, clamped, gap))
     }
 
     private fun firePlayerBullet() {
