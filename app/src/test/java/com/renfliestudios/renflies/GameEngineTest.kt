@@ -244,10 +244,11 @@ class GameEngineTest {
         repeat(5) { engine.collectPowerUp(PowerUpType.SHIELD) }
         assertEquals(5, engine.player.shieldStacks)
 
-        // Slam into the ceiling: shields never protect against it.
+        // Slam into the ceiling: shields never protect against it. (Not using
+        // step(), which would reset the bird's height/velocity before update.)
         engine.player.y = engine.player.radius
         engine.player.vy = -800f
-        step(engine)
+        engine.update(dt)
 
         assertEquals(GamePhase.GAME_OVER, engine.phase)
     }
@@ -416,16 +417,21 @@ class GameEngineTest {
         easy.startRun()
         easy.spawnObstacle(400f)
 
+        // The engine reads the global DifficultyManager on every frame, so the
+        // two runs must be simulated one at a time, each while its own
+        // difficulty is set.
+        repeat(60) {
+            easy.player.vy = 0f; easy.player.y = 400f; easy.update(dt)
+        }
+        val easyX = easy.obstacles.first().x
+
         val hard = newEngine()
         DifficultyManager.current = Difficulty.HARD
         hard.startRun()
         hard.spawnObstacle(400f)
-
         repeat(60) {
-            easy.player.vy = 0f; easy.player.y = 400f; easy.update(dt)
             hard.player.vy = 0f; hard.player.y = 400f; hard.update(dt)
         }
-        val easyX = easy.obstacles.first().x
         val hardX = hard.obstacles.first().x
         assertTrue("Hard (1.25x) must scroll faster than Easy (0.75x)", hardX < easyX)
         DifficultyManager.current = Difficulty.MEDIUM
@@ -475,11 +481,13 @@ class GameEngineTest {
             engine.player.vy = 0f
             engine.update(dt)
             elapsed += dt
-            // A fresh spawn sits exactly at the right edge on its first frame.
-            engine.obstacles.firstOrNull {
-                it.x >= engine.config.worldWidth + engine.config.obstacleWidth - 0.5f
-            }?.let {
-                if (centers.isEmpty() || centers.last() != it.gapCenter) centers.add(it.gapCenter)
+            // A fresh spawn starts at the right edge but is scrolled left inside
+            // the same frame, so the rightmost obstacle is always the newest one.
+            // Record its gap centre whenever it changes to sample consecutive gaps.
+            engine.obstacles.maxByOrNull { it.x }?.let { newest ->
+                if (centers.isEmpty() || centers.last() != newest.gapCenter) {
+                    centers.add(newest.gapCenter)
+                }
             }
         }
         assertTrue("Expected many spawns, got ${centers.size}", centers.size >= 10)
@@ -522,6 +530,12 @@ class GameEngineTest {
         val engine = newEngine()
         engine.startRun()
         engine.collectPowerUp(PowerUpType.BERSERKER)
+
+        // Pin the bird at the height the loop below uses so the scene geometry
+        // is consistent: the gap must sit inside the shift dead zone and the
+        // projectile inside the field radius.
+        engine.player.vy = 0f
+        engine.player.y = 400f
 
         val o = Obstacle(engine.config, engine.player.y + 20f, 400f)
         o.x = engine.player.x + 700f // upcoming, outside the field radius
